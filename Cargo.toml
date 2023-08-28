@@ -1,6 +1,6 @@
 [package]
 name = "pbft"
-version = "0.1.0"
+version = "1.72.0"
 authors = ["akihito.nakano <sora.akatsuki@gmail.com>"]
 edition = "2018"
 
@@ -16,3 +16,14 @@ tokio = "0.1"
 bytes = "0.4"
 unsigned-varint = { version = "0.2.1", features = ["codec"] }
 futures = "0.1"
+mdns = "*"
+quote = "*"
+syn = "*"
+proc-macro2 = "*"
+aes-soft = "*"
+
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
