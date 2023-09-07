@@ -1,15 +1,15 @@
-use libp2p::core::ConnectedPoint;
-use libp2p::swarm::{PollParameters, NetworkBehaviour, NetworkBehaviourAction};
-use libp2p::multiaddr::Multiaddr;
-use std::error::Error;
-use tokio::prelude::{AsyncRead, AsyncWrite, Async};
-use libp2p::PeerId;
-use std::collections::{VecDeque, HashSet, HashMap};
-use crate::message::{ClientRequest, PrePrepareSequence, PrePrepare, Prepare, Commit, ClientReply};
-use crate::handler::{PbftHandlerIn, PbftHandler, PbftHandlerEvent};
+use crate::handler::{PbftHandler, PbftHandlerEvent, PbftHandlerIn};
+use crate::message::{ClientReply, ClientRequest, Commit, PrePrepare, PrePrepareSequence, Prepare};
 use crate::state::State;
+use libp2p::core::ConnectedPoint;
 use libp2p::identity::Keypair;
+use libp2p::multiaddr::Multiaddr;
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
+use libp2p::PeerId;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::error::Error;
 use std::sync::{Arc, RwLock};
+use tokio::prelude::{Async, AsyncRead, AsyncWrite};
 
 pub struct Pbft<TSubstream> {
     keypair: Keypair,
@@ -23,10 +23,7 @@ pub struct Pbft<TSubstream> {
 }
 
 impl<TSubstream> Pbft<TSubstream> {
-    pub fn new(
-        keypair: Keypair,
-        client_replies: Arc<RwLock<VecDeque<ClientReply>>>,
-    ) -> Self {
+    pub fn new(keypair: Keypair, client_replies: Arc<RwLock<VecDeque<ClientReply>>>) -> Self {
         Self {
             keypair,
             addresses: HashMap::new(),
@@ -40,9 +37,9 @@ impl<TSubstream> Pbft<TSubstream> {
     }
 
     pub fn has_peer(&self, peer_id: &PeerId) -> bool {
-        self.connected_peers.iter().any(|connected_peer_id| {
-            connected_peer_id.clone() == peer_id.clone()
-        })
+        self.connected_peers
+            .iter()
+            .any(|connected_peer_id| connected_peer_id.clone() == peer_id.clone())
     }
 
     pub fn add_peer(&mut self, peer_id: &PeerId, address: &Multiaddr) {
@@ -57,13 +54,17 @@ impl<TSubstream> Pbft<TSubstream> {
             self.addresses.insert(peer_id.clone(), addresses.clone());
         }
 
-        self.queued_events.push_back(NetworkBehaviourAction::DialPeer {
-            peer_id: peer_id.clone(),
-        });
+        self.queued_events
+            .push_back(NetworkBehaviourAction::DialPeer {
+                peer_id: peer_id.clone(),
+            });
     }
 
     pub fn add_client_request(&mut self, client_request: ClientRequest) {
-        println!("[Pbft::add_client_request] client_request: {:?}", client_request);
+        println!(
+            "[Pbft::add_client_request] client_request: {:?}",
+            client_request
+        );
 
         // In the pre-prepare phase, the primary assigns a sequence number, n, to the request
         self.pre_prepare_sequence.increment();
@@ -73,17 +74,24 @@ impl<TSubstream> Pbft<TSubstream> {
             client_request,
         );
 
-        println!("[Pbft::add_client_request] [broadcasting the pre_prepare message] pre_prepare: {:?}", pre_prepare);
-        println!("[Pbft::add_client_request] [broadcasting to the peers] connected_peers: {:?}", self.connected_peers);
+        println!(
+            "[Pbft::add_client_request] [broadcasting the pre_prepare message] pre_prepare: {:?}",
+            pre_prepare
+        );
+        println!(
+            "[Pbft::add_client_request] [broadcasting to the peers] connected_peers: {:?}",
+            self.connected_peers
+        );
         if self.connected_peers.is_empty() {
             panic!("[Pbft::add_client_request] !!! connected_peers is empty !!!");
         }
 
         for peer_id in self.connected_peers.iter() {
-            self.queued_events.push_back(NetworkBehaviourAction::SendEvent {
-                peer_id: peer_id.clone(),
-                event: PbftHandlerIn::PrePrepareRequest(pre_prepare.clone())
-            });
+            self.queued_events
+                .push_back(NetworkBehaviourAction::SendEvent {
+                    peer_id: peer_id.clone(),
+                    event: PbftHandlerIn::PrePrepareRequest(pre_prepare.clone()),
+                });
         }
 
         self.process_pre_prepare(pre_prepare).unwrap(); // TODO: error handling
@@ -96,17 +104,21 @@ impl<TSubstream> Pbft<TSubstream> {
         // If backup replica accepts the message, it enters the prepare phase by multicasting a PREPARE message to
         // all other replicas and adds both messages to its log.
         let prepare = Prepare::from(&pre_prepare);
-        self.state.insert_prepare(PeerId::from_public_key(self.keypair.public()), prepare.clone());
+        self.state.insert_prepare(
+            PeerId::from_public_key(self.keypair.public()),
+            prepare.clone(),
+        );
 
         if self.connected_peers.is_empty() {
             panic!("[Pbft::process_pre_prepare] !!! Peers not found !!!");
         }
 
         for peer_id in self.connected_peers.iter() {
-            self.queued_events.push_back(NetworkBehaviourAction::SendEvent {
-                peer_id: peer_id.clone(),
-                event: PbftHandlerIn::PrepareRequest(prepare.clone())
-            })
+            self.queued_events
+                .push_back(NetworkBehaviourAction::SendEvent {
+                    peer_id: peer_id.clone(),
+                    event: PbftHandlerIn::PrepareRequest(prepare.clone()),
+                })
         }
         Ok(())
     }
@@ -121,7 +133,11 @@ impl<TSubstream> Pbft<TSubstream> {
             // it is in view _v_
             let current_view = self.state.current_view();
             if pre_prepare.view() != current_view {
-                return Err(format!("view number isn't matched. message: {}, state: {}", pre_prepare.view(), current_view));
+                return Err(format!(
+                    "view number isn't matched. message: {}, state: {}",
+                    pre_prepare.view(),
+                    current_view
+                ));
             }
 
             // it has not accepted a pre-prepare message for view _v_ and sequence number _n_ containing a different digest
@@ -143,13 +159,19 @@ impl<TSubstream> Pbft<TSubstream> {
     fn validate_prepare(&self, prepare: &Prepare) -> Result<(), String> {
         // The replicas verify whether the prepares match the pre-prepare by checking that they have the
         // same view, sequence number, and digest.
-        if let Some(pre_prepare) = self.state.get_pre_prepare_by_key(prepare.view(), prepare.sequence_number()) {
+        if let Some(pre_prepare) = self
+            .state
+            .get_pre_prepare_by_key(prepare.view(), prepare.sequence_number())
+        {
             if pre_prepare.digest() == prepare.digest() {
                 return Ok(());
             }
-            return Err(format!("the Prepare request doesn't match with the PrePrepare. prepare: {}, pre-prepare: {}", prepare, pre_prepare))
+            return Err(format!("the Prepare request doesn't match with the PrePrepare. prepare: {}, pre-prepare: {}", prepare, pre_prepare));
         }
-        Err(format!("No PrePrepare that matches with the Prepare. prepare: {}", prepare))
+        Err(format!(
+            "No PrePrepare that matches with the Prepare. prepare: {}",
+            prepare
+        ))
     }
 
     fn prepared(&self, view: u64, sequence_number: u64) -> bool {
@@ -179,7 +201,10 @@ impl<TSubstream> Pbft<TSubstream> {
         let len = self.state.commit_len(view);
         let prepared = self.prepared(view, sequence_number);
 
-        println!("[Pbft::committed] commit_len: {}, prepared: {}", len, prepared);
+        println!(
+            "[Pbft::committed] commit_len: {}, prepared: {}",
+            len, prepared
+        );
         prepared && len >= 1 // TODO: f + 1
     }
 
@@ -190,15 +215,17 @@ impl<TSubstream> Pbft<TSubstream> {
         let len = self.state.commit_len(view);
         let prepared = self.prepared(view, sequence_number);
 
-        println!("[Pbft::committed_local] commit_len: {}, prepared: {}", len, prepared);
+        println!(
+            "[Pbft::committed_local] commit_len: {}, prepared: {}",
+            len, prepared
+        );
         prepared && len >= 1 // TODO: 2f + 1
     }
 }
 
 #[derive(Debug)]
 pub struct PbftFailure;
-impl Error for PbftFailure {
-}
+impl Error for PbftFailure {}
 
 impl std::fmt::Display for PbftFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -211,7 +238,7 @@ pub struct PbftEvent;
 
 impl<TSubstream> NetworkBehaviour for Pbft<TSubstream>
 where
-    TSubstream: AsyncRead + AsyncWrite
+    TSubstream: AsyncRead + AsyncWrite,
 {
     type ProtocolsHandler = PbftHandler<TSubstream>;
     type OutEvent = PbftEvent;
@@ -225,52 +252,84 @@ where
         println!("[Pbft::addresses_of_peer] peer_id: {:?}", peer_id);
         match self.addresses.get(peer_id) {
             Some(addresses) => {
-                println!("[Pbft::addresses_of_peer] peer_id: {:?}, addresses: {:?}", peer_id, addresses);
+                println!(
+                    "[Pbft::addresses_of_peer] peer_id: {:?}, addresses: {:?}",
+                    peer_id, addresses
+                );
                 addresses.clone().into_iter().collect()
-            },
+            }
             None => {
-                println!("[Pbft::addresses_of_peer] addresses not found. peer_id: {:?}", peer_id);
+                println!(
+                    "[Pbft::addresses_of_peer] addresses not found. peer_id: {:?}",
+                    peer_id
+                );
                 Vec::new()
             }
         }
     }
 
     fn inject_connected(&mut self, peer_id: PeerId, connected_point: ConnectedPoint) {
-        println!("[Pbft::inject_connected] peer_id: {:?}, connected_point: {:?}", peer_id, connected_point);
-//        match connected_point {
-//            ConnectedPoint::Dialer { address } => {
-//            },
-//            ConnectedPoint::Listener { .. } => {}
-//        };
+        println!(
+            "[Pbft::inject_connected] peer_id: {:?}, connected_point: {:?}",
+            peer_id, connected_point
+        );
+        //        match connected_point {
+        //            ConnectedPoint::Dialer { address } => {
+        //            },
+        //            ConnectedPoint::Listener { .. } => {}
+        //        };
         self.connected_peers.insert(peer_id);
-        println!("[Pbft::inject_connected] connected_peers: {:?}, addresses: {:?}", self.connected_peers, self.addresses);
+        println!(
+            "[Pbft::inject_connected] connected_peers: {:?}, addresses: {:?}",
+            self.connected_peers, self.addresses
+        );
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId, connected_point: ConnectedPoint) {
-        println!("[Pbft::inject_disconnected] {:?}, {:?}", peer_id, connected_point);
-//        let address = match connected_point {
-//            ConnectedPoint::Dialer { address } => address,
-//            ConnectedPoint::Listener { local_addr: _, send_back_addr } => send_back_addr
-//        };
+        println!(
+            "[Pbft::inject_disconnected] {:?}, {:?}",
+            peer_id, connected_point
+        );
+        //        let address = match connected_point {
+        //            ConnectedPoint::Dialer { address } => address,
+        //            ConnectedPoint::Listener { local_addr: _, send_back_addr } => send_back_addr
+        //        };
         self.connected_peers.remove(peer_id);
-        println!("[Pbft::inject_disconnected] connected_peers: {:?}, addresses: {:?}", self.connected_peers, self.addresses);
+        println!(
+            "[Pbft::inject_disconnected] connected_peers: {:?}, addresses: {:?}",
+            self.connected_peers, self.addresses
+        );
     }
 
     fn inject_node_event(&mut self, peer_id: PeerId, handler_event: PbftHandlerEvent) {
-        println!("[Pbft::inject_node_event] handler_event: {:?}", handler_event);
+        println!(
+            "[Pbft::inject_node_event] handler_event: {:?}",
+            handler_event
+        );
         match handler_event {
-            PbftHandlerEvent::ProcessPrePrepareRequest { request, connection_id } => {
-                println!("[Pbft::inject_node_event] [PbftHandlerEvent::PrePrepareRequest] request: {:?}", request);
+            PbftHandlerEvent::ProcessPrePrepareRequest {
+                request,
+                connection_id,
+            } => {
+                println!(
+                    "[Pbft::inject_node_event] [PbftHandlerEvent::PrePrepareRequest] request: {:?}",
+                    request
+                );
                 self.process_pre_prepare(request.clone()).unwrap(); // TODO: error handling
 
-                self.queued_events.push_back(NetworkBehaviourAction::SendEvent {
-                    peer_id,
-                    event: PbftHandlerIn::PrePrepareResponse("OK".into(), connection_id),
-                });
+                self.queued_events
+                    .push_back(NetworkBehaviourAction::SendEvent {
+                        peer_id,
+                        event: PbftHandlerIn::PrePrepareResponse("OK".into(), connection_id),
+                    });
             }
             PbftHandlerEvent::Response { response } => {
-                let response_message = String::from_utf8(response).expect("Failed to parse response");
-                println!("[Pbft::inject_node_event] [PbftHandlerEvent::Response] response_message: {:?}", response_message);
+                let response_message =
+                    String::from_utf8(response).expect("Failed to parse response");
+                println!(
+                    "[Pbft::inject_node_event] [PbftHandlerEvent::Response] response_message: {:?}",
+                    response_message
+                );
                 if response_message == "OK" {
                     println!("[Pbft::inject_node_event] [PbftHandlerEvent::Response] the communications has done successfully")
                 } else {
@@ -278,43 +337,55 @@ where
                     eprintln!("[Pbft::inject_node_event] [PbftHandlerEvent::Response] response_message: {:?}", response_message);
                 }
             }
-            PbftHandlerEvent::ProcessPrepareRequest { request, connection_id } => {
+            PbftHandlerEvent::ProcessPrepareRequest {
+                request,
+                connection_id,
+            } => {
                 println!("[Pbft::inject_node_event] [PbftHandlerEvent::ProcessPrepareRequest] request: {:?}", request);
                 self.validate_prepare(&request).unwrap();
                 self.state.insert_prepare(peer_id.clone(), request.clone());
 
-                self.queued_events.push_back(NetworkBehaviourAction::SendEvent {
-                    peer_id,
-                    event: PbftHandlerIn::PrepareResponse("OK".into(), connection_id)
-                });
+                self.queued_events
+                    .push_back(NetworkBehaviourAction::SendEvent {
+                        peer_id,
+                        event: PbftHandlerIn::PrepareResponse("OK".into(), connection_id),
+                    });
 
                 if self.prepared(request.view(), request.sequence_number()) {
                     let commit: Commit = request.into();
                     for p in self.connected_peers.iter() {
-                        self.queued_events.push_back(NetworkBehaviourAction::SendEvent {
-                            peer_id: p.clone(),
-                            event: PbftHandlerIn::CommitRequest(commit.clone())
-                        })
+                        self.queued_events
+                            .push_back(NetworkBehaviourAction::SendEvent {
+                                peer_id: p.clone(),
+                                event: PbftHandlerIn::CommitRequest(commit.clone()),
+                            })
                     }
                 }
             }
-            PbftHandlerEvent::ProcessCommitRequest { request, connection_id } => {
+            PbftHandlerEvent::ProcessCommitRequest {
+                request,
+                connection_id,
+            } => {
                 println!("[Pbft::inject_node_event] [PbftHandlerEvent::ProcessCommitRequest] request: {:?}", request);
 
                 self.validate_commit(&request).unwrap();
 
-                self.queued_events.push_back(NetworkBehaviourAction::SendEvent {
-                    peer_id: peer_id.clone(),
-                    event: PbftHandlerIn::CommitResponse("OK".into(), connection_id)
-                });
+                self.queued_events
+                    .push_back(NetworkBehaviourAction::SendEvent {
+                        peer_id: peer_id.clone(),
+                        event: PbftHandlerIn::CommitResponse("OK".into(), connection_id),
+                    });
 
                 // Replicas accept commit messages and insert them in their log
                 self.state.insert_commit(peer_id, request.clone());
 
                 // Each replica _i_ executes the operation requested by _m_ after `committed-local(m, v, n, i)` is true
                 if self.committed_local(request.view(), request.sequence_number()) {
-                    let client_request =
-                        self.state.get_pre_prepare_by_key(request.view(), request.sequence_number()).unwrap().client_reqeust();
+                    let client_request = self
+                        .state
+                        .get_pre_prepare_by_key(request.view(), request.sequence_number())
+                        .unwrap()
+                        .client_reqeust();
                     println!("[Pbft::inject_node_event] [PbftHandlerEvent::ProcessCommitRequest] client_message: {:?}", client_request);
 
                     // Discard requests whose timestamp is lower than the timestamp in the last reply this node sent to the client to guarantee exactly-once semantics.
@@ -332,7 +403,7 @@ where
                     let reply = ClientReply::new(
                         PeerId::from_public_key(self.keypair.public()),
                         client_request,
-                        &request
+                        &request,
                     );
                     println!("[Pbft::inject_node_event] [PbftHandlerEvent::ProcessCommitRequest] reply: {:?}", reply);
                     self.state.update_last_timestamp(reply.timestamp());
@@ -342,7 +413,10 @@ where
         }
     }
 
-    fn poll(&mut self, _: &mut impl PollParameters) -> Async<NetworkBehaviourAction<PbftHandlerIn, PbftEvent>> {
+    fn poll(
+        &mut self,
+        _: &mut impl PollParameters,
+    ) -> Async<NetworkBehaviourAction<PbftHandlerIn, PbftEvent>> {
         println!("[Pbft::poll]");
         if let Some(event) = self.queued_events.pop_front() {
             println!("[Pbft::poll] event: {:?}", event);
