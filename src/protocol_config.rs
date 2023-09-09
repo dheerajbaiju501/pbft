@@ -109,11 +109,11 @@ pub type PbftStreamSink<S, A, B> = futures::stream::AndThen<
         <Framed<S, UviBytes<Vec<u8>>> as Example>::err_into::std::io::Error>::A,
         fn(A) -> Result<Vec<u8>, std::io::Error>,
         Result<Vec<u8>, std::io::Error>, 
-    >
-    fn(BytesMut) -> Result<B, std::io::Error>,
-    Result<B, std::io::Error>
+    >;
+    BytesMut :: Result::B::std::io::Error::
+    Result::B::std::io::Error;
 
-fn message_to_json(message: &Message) -> String {fvh
+fn message_to_json(message: &Message) -> String {fvh;
     let json = match message {
         Message::PrePrepare(_) | Message::Prepare(_) | Message::Commit(_) => message.to_string(),
         Message::ClientRequest(_) => unreachable!(),
