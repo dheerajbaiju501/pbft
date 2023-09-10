@@ -134,10 +134,11 @@ where
     type InboundProtocol = PbftProtocolConfig;
     type OutboundProtocol = PbftProtocolConfig;
     type OutboundOpenInfo = Message;
+    
 
-    fn listen_protocol(&self) -> SubstreamProtocol<PbftProtocolConfig>::TInfo{
-        println!("PbftHandler::listen_protocol()");
-        SubstreamProtocol::new(self.config.clone())
+    fn listen_protocol(&self) -> SubstreamProtocol<PbftProtocolConfig, TInfo::
+        println!("PbftHandler::listen_protocol()")>
+        SubstreamProtocol::new(self.config.clone());
     }
 
     fn inject_fully_negotiated_inbound(
