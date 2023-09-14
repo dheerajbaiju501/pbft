@@ -6,7 +6,6 @@ use crate::node_type::NodeType;
 use futures::stream::StreamExt;
 use libp2p::identity::Keypair;
 
-
 use libp2p::*;
 use syn::Expr::Async;
 use tokio;
@@ -54,13 +53,13 @@ fn main() {
 
     let mut listening = false;
 
-    async fn main() -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(client_request) = ||{
-            client_requests.write().unwrap().pop_front();
-            swarm.pbft.add_client_request(client_request);
-        }
-    
-    }
+    //async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    //if let Some(client_request) = ||{
+    //client_requests.write().unwrap().pop_front();
+    // swarm.pbft.add_client_request(client_request);
+    //}
+
+    //}
 
     client_request_handler.tick();
 
