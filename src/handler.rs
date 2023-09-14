@@ -136,9 +136,7 @@ where
     type OutboundOpenInfo = Message;
     
 
-    fn listen_protocol(&self) -> SubstreamProtocol<PbftProtocolConfig, TInfo::
-        println!("PbftHandler::listen_protocol()")>
-        SubstreamProtocol::new(self.config.clone());
+    fn listen_protocol(&self) -> SubstreamProtocol<PbftProtocolConfig, TInfo::println!("PbftHandler::listen_protocol()")>;     SubstreamProtocol::new(self.config.clone());
     }
 
     fn inject_fully_negotiated_inbound(
@@ -325,10 +323,11 @@ where
                 "[PbftHandler::handle_substream()] [SubstreamState::OutPendingOpen] message: {:?}",
                 message
             );
-            let event = ProtocolsHandlerEvent::OutboundSubstreamRequest {
-                protocol: SubstreamProtocol::new(config),
-                info: message,
+            /*let event = ProtocolsHandlerEvent::OutboundSubstreamRequest {
+                protocol:: SubstreamProtocol::new(config),
+                info: message
             };
+            */
             return (None, Some(event), false);
         }
         SubstreamState::OutPendingSend(mut substream, message) => {
